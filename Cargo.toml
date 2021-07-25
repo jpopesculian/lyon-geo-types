@@ -4,10 +4,10 @@ version = "0.1.0"
 edition = "2018"
 
 [dependencies]
-geo-clipper = "0.7.0"
 geo-types = "0.7.2"
 lyon_path = "0.17.4"
 
 [dev-dependencies]
+geo-clipper = "0.7.0"
 xml-utils = { git = "ssh://git@github.com/jpopesculian/xml-utils.git" }
 lyon = "0.17.5"

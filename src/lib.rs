@@ -15,13 +15,49 @@ impl IntoGeoCoordinate for Point<f32> {
     }
 }
 
-pub trait IntoLyonPoint {
-    fn into_point(self) -> Point<f32>;
+pub trait IntoGeoLineStringSimple {
+    fn into_line_string(self) -> LineString<f64>;
 }
 
-impl IntoLyonPoint for Coordinate<f64> {
-    fn into_point(self) -> Point<f32> {
-        Point::new(self.x as f32, self.y as f32)
+impl<'a> IntoGeoLineStringSimple for lyon_path::Polygon<'a, Point<f32>> {
+    fn into_line_string(self) -> LineString<f64> {
+        let mut out = LineString(self.points.into_iter().map(|p| p.into_coord()).collect());
+        if self.closed {
+            out.close()
+        }
+        out
+    }
+}
+
+pub trait IntoGeoMultiLineStringSimple {
+    fn into_multi_line_string(self) -> MultiLineString<f64>;
+}
+
+impl<T> IntoGeoMultiLineStringSimple for T
+where
+    T: IntoGeoLineStringSimple,
+{
+    fn into_multi_line_string(self) -> MultiLineString<f64> {
+        MultiLineString(vec![self.into_line_string()])
+    }
+}
+
+pub trait IntoGeoPolygonSimple {
+    fn into_poly(self) -> Polygon<f64>;
+}
+
+impl<T> IntoGeoPolygonSimple for T
+where
+    T: IntoGeoMultiLineStringSimple,
+{
+    fn into_poly(self) -> Polygon<f64> {
+        let mut mls = self.into_multi_line_string().0;
+        if mls.is_empty() {
+            Polygon::new(LineString(Vec::new()), Vec::new())
+        } else {
+            let exterior = mls.remove(0);
+            Polygon::new(exterior, mls)
+        }
     }
 }
 
@@ -56,6 +92,25 @@ where
     }
 }
 
+pub trait IntoGeoPolygon {
+    fn into_poly(self, tolerance: f32) -> Polygon<f64>;
+}
+
+impl<T> IntoGeoPolygon for T
+where
+    T: IntoGeoMultiLineString,
+{
+    fn into_poly(self, tolerance: f32) -> Polygon<f64> {
+        let mut mls = self.into_multi_line_string(tolerance).0;
+        if mls.is_empty() {
+            Polygon::new(LineString(Vec::new()), Vec::new())
+        } else {
+            let exterior = mls.remove(0);
+            Polygon::new(exterior, mls)
+        }
+    }
+}
+
 pub trait IntoGeoMultiPolygon {
     fn into_multi_poly(self, tolerance: f32) -> MultiPolygon<f64>;
 }
@@ -74,11 +129,21 @@ where
     }
 }
 
-pub trait ToLyonPath {
+pub trait IntoLyonPoint {
+    fn into_point(self) -> Point<f32>;
+}
+
+impl IntoLyonPoint for Coordinate<f64> {
+    fn into_point(self) -> Point<f32> {
+        Point::new(self.x as f32, self.y as f32)
+    }
+}
+
+pub trait IntoLyonPath {
     fn into_path(self) -> Path;
 }
 
-impl ToLyonPath for LineString<f64> {
+impl IntoLyonPath for LineString<f64> {
     fn into_path(self) -> Path {
         let is_closed = self.is_closed();
         let mut coords = self.into_iter();
@@ -94,10 +159,21 @@ impl ToLyonPath for LineString<f64> {
     }
 }
 
-impl ToLyonPath for MultiLineString<f64> {
+impl IntoLyonPath for MultiLineString<f64> {
     fn into_path(self) -> Path {
         let mut builder = Path::builder();
         for line_string in self {
+            builder.concatenate(&[line_string.into_path().as_slice()]);
+        }
+        builder.build()
+    }
+}
+
+impl IntoLyonPath for Polygon<f64> {
+    fn into_path(self) -> Path {
+        let mut builder = Path::builder();
+        let (exterior, interior) = self.into_inner();
+        for line_string in std::iter::once(exterior).chain(interior.into_iter()) {
             builder.concatenate(&[line_string.into_path().as_slice()]);
         }
         builder.build()
